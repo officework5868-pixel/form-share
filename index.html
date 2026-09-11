@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>FormShare</title>
+<meta name="description" content="Create business and customer forms, then download or share them as an image, PDF, or link." />
+<meta name="theme-color" content="#2856d6" />
+<link rel="manifest" href="manifest.webmanifest" />
+<link rel="icon" href="favicon.png" />
+<link rel="apple-touch-icon" href="apple-touch-icon.png" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="apple-mobile-web-app-title" content="FormShare" />
+<link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+<div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+<header class="app-header">
+  <div class="app-header-inner">
+    <button id="backBtn" class="icon-btn back-btn hidden" aria-label="Back">←</button>
+    <h1 id="headerTitle">FormShare</h1>
+    <button id="newFormBtn" class="icon-btn" aria-label="New form">＋</button>
+  </div>
+  <div id="installBanner" class="install-banner hidden">
+    <span>Install this on your phone for one-tap access — even offline.</span>
+    <button id="installHowBtn" class="link-btn">How?</button>
+    <button id="installDismissBtn" class="icon-btn small" aria-label="Dismiss">×</button>
+  </div>
+</header>
+
+<main id="app" class="app-main"></main>
+
+<div id="modalRoot"></div>
+
+<script src="app.js"></script>
+</body>
+</html>
