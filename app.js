@@ -222,7 +222,11 @@ function buildShareLink(template, data, kind) {
     ? { k: "template", name: template.name, accent: template.accent, fields: template.fields }
     : { k: "submission", name: template.name, accent: template.accent, fields: template.fields, data };
   const path = kind === "template" ? "fill" : "view";
-  return `${base}#/${path}?f=${encodeShareData(payload)}`;
+  // No "?" or "=" in the fragment -- a query-string-shaped pattern here
+  // triggers a real iOS bug where Messages' link detector truncates the
+  // tappable URL right at the "=", even though the full text displays fine.
+  // A plain path segment avoids that entirely.
+  return `${base}#/${path}/${encodeShareData(payload)}`;
 }
 function clearSharedHash() {
   if (location.hash.startsWith("#/view") || location.hash.startsWith("#/fill")) {
@@ -230,7 +234,9 @@ function clearSharedHash() {
   }
 }
 function tryLoadSharedLink() {
-  const m = location.hash.match(/^#\/(view|fill)\?f=(.+)$/);
+  // Accepts both the current path-style link (#/fill/<data>) and the old
+  // query-string-style one (#/fill?f=<data>) for links already sent out.
+  const m = location.hash.match(/^#\/(view|fill)(?:\/|\?f=)(.+)$/);
   if (!m) return false;
   try {
     const payload = decodeShareData(decodeURIComponent(m[2]));
