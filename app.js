@@ -6,7 +6,7 @@ const ENTRIES_KEY = "formshare_entries_v2";
 const BUSINESSES_KEY = "formshare_businesses_v1";
 const SEED_KEY = "formshare_seeded_v2";
 const DISMISS_KEY = "formshare_install_dismissed_v1";
-const APP_VERSION = "1.2.0";
+const APP_VERSION = "1.3.0";
 
 // Storage on a device can fill up over years of use (mobile Safari typically
 // caps an origin around 5-10MB, and each signed submission carries an
@@ -1411,3 +1411,15 @@ if (!tryLoadSharedLink()) state = { view: "home", formId: null, templateId: null
 ensureSeedTemplates();
 initInstallBanner();
 render();
+
+// A phone often reuses an already-open tab (or resumes a suspended installed
+// app) instead of doing a fresh load when a shared link is tapped. Without
+// this, the app only ever looked at the link once, at initial script
+// startup, and silently kept showing whatever was already on screen instead
+// of the newly shared form. Re-check any time the URL actually changes, or
+// the page is restored from the back-forward cache.
+function routeFromCurrentHash() {
+  if (tryLoadSharedLink()) render();
+}
+window.addEventListener("hashchange", routeFromCurrentHash);
+window.addEventListener("pageshow", (e) => { if (e.persisted) routeFromCurrentHash(); });
