@@ -3,8 +3,10 @@
 /* ---------- Storage ---------- */
 const TEMPLATES_KEY = "formshare_templates_v2";
 const ENTRIES_KEY = "formshare_entries_v2";
+const BUSINESSES_KEY = "formshare_businesses_v1";
 const SEED_KEY = "formshare_seeded_v2";
 const DISMISS_KEY = "formshare_install_dismissed_v1";
+const APP_VERSION = "1.1.0";
 
 function loadTemplates() {
   try { return JSON.parse(localStorage.getItem(TEMPLATES_KEY)) || []; }
@@ -16,11 +18,18 @@ function loadEntries() {
   catch { return []; }
 }
 function saveEntries(list) { localStorage.setItem(ENTRIES_KEY, JSON.stringify(list)); }
+function loadBusinesses() {
+  try { return JSON.parse(localStorage.getItem(BUSINESSES_KEY)) || []; }
+  catch { return []; }
+}
+function saveBusinesses(list) { localStorage.setItem(BUSINESSES_KEY, JSON.stringify(list)); }
 
 let templates = loadTemplates(); // form designs you've built ("My Forms")
 let entries = loadEntries();     // completed/signed submissions ("Submissions")
+let businesses = loadBusinesses(); // saved business profiles (yours, or ones you manage for others)
 let draft = {};                  // working copy of field values while filling out a form
 let builderDraft = { id: null, name: "", accent: "#2856d6", fields: [] }; // working copy while designing a form
+let businessDraft = { id: null, name: "", phone: "", email: "", address: "", accent: "#2856d6" }; // working copy while editing a business profile
 const sigState = {};             // per-field signature pad state while filling
 
 /* ---------- Utilities ---------- */
@@ -35,6 +44,22 @@ function slug(s) {
 }
 function isIOS() { return /iP(hone|ad|od)/.test(navigator.userAgent); }
 const PALETTE = ["#2856d6", "#0f7a5c", "#a6335c", "#b3691e", "#5b4fc4", "#0f8a8a"];
+
+function defaultBusiness() {
+  if (!businesses.length) return null;
+  return businesses.slice().sort((a, b) => b.updatedAt - a.updatedAt)[0];
+}
+function setHeaderTitle(title, subtitle) {
+  document.getElementById("headerTitle").textContent = title;
+  const subEl = document.getElementById("headerSubtitle");
+  if (subtitle) {
+    subEl.textContent = subtitle;
+    subEl.classList.remove("hidden");
+  } else {
+    subEl.textContent = "";
+    subEl.classList.add("hidden");
+  }
+}
 
 let toastTimer = null;
 function showToast(msg) {
@@ -237,9 +262,20 @@ function firstMeaningfulValue(template, data) {
 }
 
 function renderHome() {
-  document.getElementById("headerTitle").textContent = "FormShare";
+  const homeBusiness = defaultBusiness();
+  setHeaderTitle("FormShare", homeBusiness ? homeBusiness.name : null);
   document.getElementById("backBtn").classList.add("hidden");
   document.getElementById("newFormBtn").classList.remove("hidden");
+
+  const sortedBusinesses = businesses.slice().sort((a, b) => b.updatedAt - a.updatedAt);
+  const businessCards = sortedBusinesses.map(b => `
+    <div class="form-card" onclick="openBusinessEditor('${b.id}')">
+      <div class="form-card-icon" style="background:${b.accent || "#2856d6"}">🏢</div>
+      <div class="form-card-body">
+        <div class="form-card-title">${escapeHtml(b.name)}</div>
+        <div class="form-card-sub">${escapeHtml(b.phone || b.email || "Tap to edit")}</div>
+      </div>
+    </div>`).join("");
 
   const sortedTemplates = templates.slice().sort((a, b) => b.updatedAt - a.updatedAt);
   const tplCards = sortedTemplates.map(t => `
@@ -266,12 +302,18 @@ function renderHome() {
   }).join("");
 
   return `
-    <div class="section-title" style="margin-top:2px;">My Forms</div>
+    <div class="section-title" style="margin-top:2px;">My Businesses</div>
+    ${businesses.length ? businessCards : `<div class="empty-state" style="padding:20px 10px;">Save your business info (or a friend's) once, then fill it into any form in one tap.</div>`}
+    <button class="btn btn-secondary btn-full" style="margin:6px 0 26px;" onclick="openBusinessEditor(null)">+ Add a Business</button>
+
+    <div class="section-title">My Forms</div>
     ${templates.length ? tplCards : `<div class="empty-state" style="padding:20px 10px;">No forms yet — design one to get started.</div>`}
     <button class="btn btn-secondary btn-full" style="margin:6px 0 26px;" onclick="startNewTemplate()">+ Design a New Form</button>
 
     <div class="section-title">Submissions</div>
     ${entries.length ? entryCards : `<div class="empty-state" style="padding:20px 10px;">Completed, signed forms — yours or sent back to you — will show up here.</div>`}
+
+    <div class="footer-note">FormShare v${APP_VERSION} · <button class="footer-link" onclick="checkForUpdates()">Check for updates</button></div>
   `;
 }
 
@@ -284,7 +326,7 @@ function startNewTemplate() {
 function renderTemplateDetail() {
   const tpl = templates.find(t => t.id === state.templateId);
   if (!tpl) { navigate("home"); return ""; }
-  document.getElementById("headerTitle").textContent = tpl.name;
+  setHeaderTitle(tpl.name, null);
   document.getElementById("backBtn").classList.remove("hidden");
   document.getElementById("newFormBtn").classList.add("hidden");
 
@@ -330,6 +372,129 @@ function deleteTemplate(templateId) {
   saveTemplates(templates);
   navigate("home");
   showToast("Form deleted");
+}
+
+/* ---------- Business Profiles (yours, or one you manage for someone else) ---------- */
+function openBusinessEditor(businessId) {
+  const existing = businessId ? businesses.find(b => b.id === businessId) : null;
+  businessDraft = existing
+    ? { ...existing }
+    : { id: null, name: "", phone: "", email: "", address: "", accent: PALETTE[businesses.length % PALETTE.length] };
+  renderBusinessEditorModal();
+}
+
+function updateBusinessDraft(prop, value) { businessDraft[prop] = value; }
+function selectBusinessColor(c) { businessDraft.accent = c; renderBusinessEditorModal(); }
+
+function renderBusinessEditorModal() {
+  const isEdit = !!businessDraft.id;
+  document.getElementById("modalRoot").innerHTML = `
+    <div class="modal-overlay" onclick="if(event.target===this) closeModal()">
+      <div class="modal-sheet">
+        <div class="modal-head">
+          <h3>${isEdit ? "Edit Business" : "Add a Business"}</h3>
+          <button class="icon-btn small" onclick="closeModal()" style="color:#1f2430;background:#eef1f7;">×</button>
+        </div>
+        <div class="field">
+          <label>Business Name</label>
+          <input type="text" value="${escapeHtml(businessDraft.name)}" placeholder="e.g. Riverside Plumbing, or a friend's business" oninput="updateBusinessDraft('name', this.value)" />
+        </div>
+        <div class="field">
+          <label>Phone</label>
+          <input type="tel" value="${escapeHtml(businessDraft.phone)}" placeholder="(555) 123-4567" oninput="updateBusinessDraft('phone', this.value)" />
+        </div>
+        <div class="field">
+          <label>Email</label>
+          <input type="email" value="${escapeHtml(businessDraft.email)}" placeholder="you@business.com" oninput="updateBusinessDraft('email', this.value)" />
+        </div>
+        <div class="field">
+          <label>Address</label>
+          <textarea rows="2" placeholder="Street, City, State ZIP" oninput="updateBusinessDraft('address', this.value)">${escapeHtml(businessDraft.address)}</textarea>
+        </div>
+        <div class="field">
+          <label>Color</label>
+          <div class="color-row">
+            ${PALETTE.map(c => `<div class="color-dot ${businessDraft.accent === c ? "selected" : ""}" style="background:${c}" onclick="selectBusinessColor('${c}')"></div>`).join("")}
+          </div>
+        </div>
+        <button class="btn btn-primary btn-full" style="margin-bottom:8px;" onclick="saveBusiness()">Save Business</button>
+        ${isEdit ? `<button class="btn btn-danger btn-full" onclick="deleteBusiness()">Delete Business</button>` : ""}
+      </div>
+    </div>`;
+}
+
+function saveBusiness() {
+  if (!businessDraft.name.trim()) { showToast("Please name this business"); return; }
+  const now = Date.now();
+  if (businessDraft.id) {
+    businesses = businesses.map(b => b.id === businessDraft.id ? { ...businessDraft, name: businessDraft.name.trim(), updatedAt: now } : b);
+  } else {
+    businesses.push({ ...businessDraft, id: uid(), name: businessDraft.name.trim(), createdAt: now, updatedAt: now });
+  }
+  saveBusinesses(businesses);
+  closeModal();
+  render();
+  showToast("Business saved");
+}
+
+function deleteBusiness() {
+  if (!businessDraft.id) return;
+  if (!confirm("Delete this business profile? Forms already filled out won't be affected.")) return;
+  businesses = businesses.filter(b => b.id !== businessDraft.id);
+  saveBusinesses(businesses);
+  closeModal();
+  render();
+  showToast("Business deleted");
+}
+
+// Matches a form field's label to a business-profile property, so "Fill in
+// business info" works on any form regardless of who designed it — as long
+// as the label isn't clearly about the other party (customer/client).
+function businessFieldMatch(label) {
+  const l = label.toLowerCase();
+  if (l.includes("customer") || l.includes("client")) return null;
+  if (l.includes("name") && (l.includes("business") || l.includes("store") || l.includes("company"))) return "name";
+  if (l.includes("phone")) return "phone";
+  if (l.includes("email")) return "email";
+  if (l.includes("address")) return "address";
+  return null;
+}
+
+function applyBusinessById(businessId) {
+  const business = businesses.find(b => b.id === businessId);
+  if (!business) return;
+  const tpl = state.templateSnapshot;
+  if (!tpl) return;
+  let matched = 0;
+  tpl.fields.forEach(f => {
+    if (f.type === "signature" || f.type === "terms" || f.type === "dateChoice") return;
+    const prop = businessFieldMatch(f.label);
+    if (prop && business[prop]) { draft[f.id] = business[prop]; matched++; }
+  });
+  closeModal();
+  render();
+  showToast(matched ? `Filled in ${business.name}'s info` : "No matching fields found on this form");
+}
+
+function fillWithBusiness() {
+  if (businesses.length === 1) { applyBusinessById(businesses[0].id); return; }
+  document.getElementById("modalRoot").innerHTML = `
+    <div class="modal-overlay" onclick="if(event.target===this) closeModal()">
+      <div class="modal-sheet">
+        <div class="modal-head">
+          <h3>Fill in which business?</h3>
+          <button class="icon-btn small" onclick="closeModal()" style="color:#1f2430;background:#eef1f7;">×</button>
+        </div>
+        ${businesses.slice().sort((a, b) => b.updatedAt - a.updatedAt).map(b => `
+          <div class="type-pick-card" onclick="applyBusinessById('${b.id}')">
+            <div class="type-pick-icon" style="background:${b.accent || "#2856d6"}">🏢</div>
+            <div>
+              <div class="type-pick-name">${escapeHtml(b.name)}</div>
+              <div class="type-pick-desc">${escapeHtml(b.phone || b.email || "")}</div>
+            </div>
+          </div>`).join("")}
+      </div>
+    </div>`;
 }
 
 /* ---------- Sharing a blank template ---------- */
@@ -432,7 +597,7 @@ function renderFillFields(fields) {
 function renderFill() {
   const tpl = state.templateSnapshot;
   if (!tpl) { navigate("home"); return ""; }
-  document.getElementById("headerTitle").textContent = state.formId ? "Edit Submission" : tpl.name;
+  setHeaderTitle(state.formId ? "Edit Submission" : tpl.name, null);
   document.getElementById("backBtn").classList.remove("hidden");
   document.getElementById("newFormBtn").classList.add("hidden");
 
@@ -441,6 +606,7 @@ function renderFill() {
       <span class="form-type-icon">📝</span>
       <div><div class="form-type-name">${escapeHtml(tpl.name)}</div></div>
     </div>
+    ${businesses.length ? `<button class="btn btn-secondary btn-full" style="margin-bottom:14px;" onclick="fillWithBusiness()">🏢 Fill in business info</button>` : ""}
     <div class="fields-card">${renderFillFields(tpl.fields)}</div>
     <button class="btn btn-primary btn-full" style="margin-bottom:10px;" onclick="saveDraft()">${state.formId ? "Save Changes" : "Submit"}</button>
     <button class="btn btn-ghost btn-full" onclick="cancelFill()">Cancel</button>
@@ -578,7 +744,7 @@ function currentPreviewData() {
 function renderPreview() {
   const cur = currentPreviewData();
   if (!cur) { navigate("home"); return ""; }
-  document.getElementById("headerTitle").textContent = cur.template.name;
+  setHeaderTitle(cur.template.name, null);
   document.getElementById("backBtn").classList.remove("hidden");
   document.getElementById("newFormBtn").classList.add("hidden");
 
@@ -897,7 +1063,7 @@ async function copyShareLink() {
 
 /* ---------- Rendering: Form Builder ---------- */
 function renderBuilder() {
-  document.getElementById("headerTitle").textContent = builderDraft.id ? "Edit Form" : "New Form";
+  setHeaderTitle(builderDraft.id ? "Edit Form" : "New Form", null);
   document.getElementById("backBtn").classList.remove("hidden");
   document.getElementById("newFormBtn").classList.add("hidden");
 
@@ -1138,10 +1304,36 @@ async function triggerInstall() {
 }
 
 /* ---------- Service worker ---------- */
+let swRegistration = null;
+let swRefreshing = false;
+
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", () => {
-    navigator.serviceWorker.register("service-worker.js").catch(() => {});
+    navigator.serviceWorker.register("service-worker.js")
+      .then(reg => { swRegistration = reg; })
+      .catch(() => {});
   });
+  navigator.serviceWorker.addEventListener("controllerchange", () => {
+    if (swRefreshing) return;
+    swRefreshing = true;
+    window.location.reload();
+  });
+}
+
+// Lets you pull in a newer version of the app after you've pushed changes,
+// instead of staying stuck on whatever the service worker cached earlier.
+async function checkForUpdates() {
+  if (!("serviceWorker" in navigator)) { showToast("Updates aren't supported in this browser"); return; }
+  showToast("Checking for updates…");
+  try {
+    const reg = swRegistration || await navigator.serviceWorker.getRegistration();
+    if (!reg) { showToast("Reload the page once to enable update checks"); return; }
+    await reg.update();
+    if (reg.waiting) reg.waiting.postMessage({ type: "SKIP_WAITING" });
+    else if (!reg.installing) showToast("You're on the latest version");
+  } catch {
+    showToast("Couldn't check for updates — check your connection");
+  }
 }
 
 /* ---------- Init ---------- */
