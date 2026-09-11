@@ -1336,10 +1336,23 @@ function readImportedBackup(file) {
 }
 
 /* ---------- Init ---------- */
-if (!tryLoadSharedLink()) state = { view: "home", formId: null, templateId: null, templateSnapshot: null };
+const __debugHashAtLoad = location.hash;
+const __debugMatched = tryLoadSharedLink();
+if (!__debugMatched) state = { view: "home", formId: null, templateId: null, templateSnapshot: null };
 ensureSeedTemplates();
 initInstallBanner();
 render();
+
+// TEMPORARY diagnostic banner to pin down a link-sharing bug -- shows
+// exactly what the app saw in the URL at load time. Safe to remove once
+// the issue is confirmed and fixed. Tap it to dismiss.
+(function showDebugBanner() {
+  const el = document.createElement("div");
+  el.style.cssText = "position:fixed;top:0;left:0;right:0;background:#111;color:#7CFC7C;font:11px/1.5 monospace;padding:10px 12px;z-index:99999;word-break:break-all;max-height:45vh;overflow:auto;white-space:pre-wrap;";
+  el.textContent = `DEBUG (tap to dismiss)\nhash length: ${__debugHashAtLoad.length}\nmatched a shared link: ${__debugMatched}\nstate.view: ${state.view}\nhash starts with: ${__debugHashAtLoad.slice(0, 60)}\nhash ends with: ${__debugHashAtLoad.slice(-30)}`;
+  el.onclick = () => el.remove();
+  document.body.appendChild(el);
+})();
 
 // A phone often reuses an already-open tab (or resumes a suspended installed
 // app) instead of doing a fresh load when a shared link is tapped. Without

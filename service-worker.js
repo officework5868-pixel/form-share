@@ -1,4 +1,4 @@
-const CACHE_NAME = "formshare-v1.4.0";
+const CACHE_NAME = "formshare-v1.4.1-debug";
 const APP_SHELL = [
   "./",
   "./index.html",
