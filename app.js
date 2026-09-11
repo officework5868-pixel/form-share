@@ -756,10 +756,7 @@ function renderPreview() {
     <div class="preview-frame">
       <img id="previewImg" alt="${escapeHtml(cur.template.name)} preview" class="preview-img" />
     </div>
-    <div class="action-row">
-      <button class="btn btn-secondary" onclick="editCurrent()">Edit</button>
-      <button class="btn btn-secondary" onclick="openShareModal()">Share</button>
-    </div>
+    <button class="btn btn-secondary btn-full" style="margin-bottom:8px;" onclick="editCurrent()">Edit</button>
     <div class="action-row">
       <button class="btn btn-primary" onclick="downloadCurrentImage()">⬇ Image</button>
       <button class="btn btn-primary" onclick="downloadCurrentPdf()">⬇ PDF</button>
@@ -929,8 +926,17 @@ async function downloadCurrentImage() {
   const cur = currentPreviewData();
   if (!cur) return;
   const canvas = await generateFormCanvas(cur.template, cur.data);
-  const blob = await canvasToBlob(canvas, "image/png");
-  triggerDownload(blob, `${slug(cur.template.name)}.png`);
+  // A data: URI (not a blob: object URL) is what iOS Safari reliably
+  // honors the download attribute for -- blob URLs for images silently
+  // did nothing on some iOS versions even though the identical approach
+  // worked for the PDF export.
+  const dataUrl = canvas.toDataURL("image/png");
+  const a = document.createElement("a");
+  a.href = dataUrl;
+  a.download = `${slug(cur.template.name)}.png`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
 }
 
 /* ---------- Export: PDF (hand-built single-page PDF wrapping a JPEG — no external library needed) ---------- */
@@ -988,43 +994,8 @@ async function downloadCurrentPdf() {
   triggerDownload(pdfBlob, `${slug(cur.template.name)}.pdf`);
 }
 
-/* ---------- Sharing a completed submission ---------- */
+/* ---------- Modal helper ---------- */
 function closeModal() { document.getElementById("modalRoot").innerHTML = ""; }
-
-function openShareModal() {
-  const cur = currentPreviewData();
-  if (!cur) return;
-  const link = buildShareLink(cur.template, cur.data, "submission");
-  const text = `${cur.template.name} — completed form\n\nView / download: ${link}\n\nSent from FormShare`;
-  const encoded = encodeURIComponent(text);
-  const subject = encodeURIComponent(cur.template.name);
-  const smsHref = isIOS() ? `sms:&body=${encoded}` : `sms:?body=${encoded}`;
-
-  document.getElementById("modalRoot").innerHTML = `
-    <div class="modal-overlay" onclick="if(event.target===this) closeModal()">
-      <div class="modal-sheet">
-        <div class="modal-head">
-          <h3>Share ${escapeHtml(cur.template.name)}</h3>
-          <button class="icon-btn small" onclick="closeModal()" style="color:#1f2430;background:#eef1f7;">×</button>
-        </div>
-        <div class="share-text-box">${escapeHtml(link)}</div>
-        <a class="btn btn-primary btn-full" style="margin-bottom:8px; display:block; text-align:center; text-decoration:none; box-sizing:border-box;" href="${smsHref}">Text message</a>
-        <a class="btn btn-secondary btn-full" style="margin-bottom:8px; display:block; text-align:center; text-decoration:none; box-sizing:border-box;" href="mailto:?subject=${subject}&body=${encoded}">Email</a>
-        <button class="btn btn-ghost btn-full" onclick="copyShareLink()">Copy link</button>
-      </div>
-    </div>`;
-}
-
-async function copyShareLink() {
-  const cur = currentPreviewData();
-  if (!cur) return;
-  try {
-    await navigator.clipboard.writeText(buildShareLink(cur.template, cur.data, "submission"));
-    showToast("Link copied to clipboard");
-  } catch {
-    showToast("Couldn't copy — select and copy manually");
-  }
-}
 
 /* ---------- Rendering: Form Builder ---------- */
 function renderBuilder() {
