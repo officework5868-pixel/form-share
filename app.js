@@ -6,7 +6,7 @@ const ENTRIES_KEY = "formshare_entries_v2";
 const BUSINESSES_KEY = "formshare_businesses_v1";
 const SEED_KEY = "formshare_seeded_v2";
 const DISMISS_KEY = "formshare_install_dismissed_v1";
-const APP_VERSION = "1.3.0";
+const APP_VERSION = "1.4.0";
 
 // Storage on a device can fill up over years of use (mobile Safari typically
 // caps an origin around 5-10MB, and each signed submission carries an
@@ -529,28 +529,11 @@ function openTemplateShareModal(templateId) {
           <button class="icon-btn small" onclick="closeModal()" style="color:#1f2430;background:#eef1f7;">×</button>
         </div>
         <div class="share-text-box">${escapeHtml(link)}</div>
-        <button class="btn btn-primary btn-full" style="margin-bottom:8px;" onclick="nativeShareTemplate('${tpl.id}')">📤 Share via Messages / Email / Apps</button>
-        <a class="btn btn-secondary btn-full" style="margin-bottom:8px; display:block; text-align:center; text-decoration:none; box-sizing:border-box;" href="${smsHref}">Text message</a>
+        <a class="btn btn-primary btn-full" style="margin-bottom:8px; display:block; text-align:center; text-decoration:none; box-sizing:border-box;" href="${smsHref}">Text message</a>
         <a class="btn btn-secondary btn-full" style="margin-bottom:8px; display:block; text-align:center; text-decoration:none; box-sizing:border-box;" href="mailto:?subject=${subject}&body=${encoded}">Email</a>
         <button class="btn btn-ghost btn-full" onclick="copyTemplateLink('${tpl.id}')">Copy link</button>
       </div>
     </div>`;
-}
-
-async function nativeShareTemplate(templateId) {
-  const tpl = templates.find(t => t.id === templateId);
-  if (!tpl) return;
-  const link = buildShareLink(tpl, null, "template");
-  if (navigator.share) {
-    try {
-      await navigator.share({ title: `Please fill out: ${tpl.name}`, text: `Please fill out this form: ${tpl.name}`, url: link });
-      return;
-    } catch (err) {
-      if (err && err.name !== "AbortError") showToast("Couldn't open share sheet");
-      return;
-    }
-  }
-  showToast("Sharing isn't supported in this browser — try Copy link instead");
 }
 
 async function copyTemplateLink(templateId) {
@@ -1025,42 +1008,11 @@ function openShareModal() {
           <button class="icon-btn small" onclick="closeModal()" style="color:#1f2430;background:#eef1f7;">×</button>
         </div>
         <div class="share-text-box">${escapeHtml(link)}</div>
-        <button class="btn btn-primary btn-full" style="margin-bottom:8px;" onclick="nativeShareForm()">📤 Share via Messages / Email / Apps</button>
-        <a class="btn btn-secondary btn-full" style="margin-bottom:8px; display:block; text-align:center; text-decoration:none; box-sizing:border-box;" href="${smsHref}">Text message</a>
+        <a class="btn btn-primary btn-full" style="margin-bottom:8px; display:block; text-align:center; text-decoration:none; box-sizing:border-box;" href="${smsHref}">Text message</a>
         <a class="btn btn-secondary btn-full" style="margin-bottom:8px; display:block; text-align:center; text-decoration:none; box-sizing:border-box;" href="mailto:?subject=${subject}&body=${encoded}">Email</a>
         <button class="btn btn-ghost btn-full" onclick="copyShareLink()">Copy link</button>
       </div>
     </div>`;
-}
-
-async function nativeShareForm() {
-  const cur = currentPreviewData();
-  if (!cur) return;
-  const title = cur.template.name;
-  const link = buildShareLink(cur.template, cur.data, "submission");
-
-  try {
-    const canvas = await generateFormCanvas(cur.template, cur.data);
-    const blob = await canvasToBlob(canvas, "image/png");
-    const file = new File([blob], `${slug(title)}.png`, { type: "image/png" });
-    if (navigator.canShare && navigator.canShare({ files: [file] })) {
-      await navigator.share({ title, text: `${title} — view or download: ${link}`, files: [file] });
-      return;
-    }
-  } catch (err) {
-    if (err && err.name === "AbortError") return;
-  }
-
-  if (navigator.share) {
-    try {
-      await navigator.share({ title, text: `${title} — completed form`, url: link });
-      return;
-    } catch (err) {
-      if (err && err.name !== "AbortError") showToast("Couldn't open share sheet");
-      return;
-    }
-  }
-  showToast("Sharing isn't supported in this browser — try Copy link or Download instead");
 }
 
 async function copyShareLink() {
@@ -1322,7 +1274,13 @@ let swRefreshing = false;
 
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", () => {
-    navigator.serviceWorker.register("service-worker.js")
+    // updateViaCache: "none" forces every update check to bypass HTTP
+    // caching of service-worker.js itself -- without it, a browser can end
+    // up comparing a stale cached copy of the update-check file against
+    // itself and conclude "no update" even when the server has something
+    // newer (a known issue on hosts like GitHub Pages that cache static
+    // files), which is why Check for Updates was silently doing nothing.
+    navigator.serviceWorker.register("service-worker.js", { updateViaCache: "none" })
       .then(reg => { swRegistration = reg; })
       .catch(() => {});
   });
