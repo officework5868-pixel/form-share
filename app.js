@@ -529,7 +529,7 @@ async function nativeShareTemplate(templateId) {
   const link = buildShareLink(tpl, null, "template");
   if (navigator.share) {
     try {
-      await navigator.share({ title: `Please fill out: ${tpl.name}`, text: `Please fill out this form: ${tpl.name}\n\n${link}` });
+      await navigator.share({ title: `Please fill out: ${tpl.name}`, text: `Please fill out this form: ${tpl.name}`, url: link });
       return;
     } catch (err) {
       if (err && err.name !== "AbortError") showToast("Couldn't open share sheet");
@@ -1024,14 +1024,13 @@ async function nativeShareForm() {
   if (!cur) return;
   const title = cur.template.name;
   const link = buildShareLink(cur.template, cur.data, "submission");
-  const shareText = `${title} — view or download: ${link}`;
 
   try {
     const canvas = await generateFormCanvas(cur.template, cur.data);
     const blob = await canvasToBlob(canvas, "image/png");
     const file = new File([blob], `${slug(title)}.png`, { type: "image/png" });
     if (navigator.canShare && navigator.canShare({ files: [file] })) {
-      await navigator.share({ title, text: shareText, files: [file] });
+      await navigator.share({ title, text: `${title} — view or download: ${link}`, files: [file] });
       return;
     }
   } catch (err) {
@@ -1040,7 +1039,7 @@ async function nativeShareForm() {
 
   if (navigator.share) {
     try {
-      await navigator.share({ title, text: shareText });
+      await navigator.share({ title, text: `${title} — completed form`, url: link });
       return;
     } catch (err) {
       if (err && err.name !== "AbortError") showToast("Couldn't open share sheet");
