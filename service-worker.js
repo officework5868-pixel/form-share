@@ -1,4 +1,4 @@
-const CACHE_NAME = "formshare-v1.1.0";
+const CACHE_NAME = "formshare-v1.2.0";
 const APP_SHELL = [
   "./",
   "./index.html",
@@ -32,23 +32,43 @@ self.addEventListener("activate", (event) => {
   );
 });
 
+function cacheFirst(request) {
+  return caches.match(request).then((cached) => {
+    const network = fetch(request)
+      .then((response) => {
+        if (response && response.ok) {
+          const clone = response.clone();
+          caches.open(CACHE_NAME).then((cache) => cache.put(request, clone));
+        }
+        return response;
+      })
+      .catch(() => cached);
+    return cached || network;
+  });
+}
+
+// Network-first for the app's own code, so a phone that's online always
+// gets whatever was most recently pushed instead of an indefinitely stale
+// cached copy. Falls back to the cache only when actually offline.
+function networkFirst(request) {
+  return fetch(request)
+    .then((response) => {
+      if (response && response.ok) {
+        const clone = response.clone();
+        caches.open(CACHE_NAME).then((cache) => cache.put(request, clone));
+      }
+      return response;
+    })
+    .catch(() => caches.match(request).then((cached) => cached || caches.match("./index.html")));
+}
+
 self.addEventListener("fetch", (event) => {
   if (event.request.method !== "GET") return;
   const url = new URL(event.request.url);
   if (url.origin !== self.location.origin) return;
 
-  event.respondWith(
-    caches.match(event.request).then((cached) => {
-      const network = fetch(event.request)
-        .then((response) => {
-          if (response && response.ok) {
-            const clone = response.clone();
-            caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
-          }
-          return response;
-        })
-        .catch(() => cached || caches.match("./index.html"));
-      return cached || network;
-    })
-  );
+  const dest = event.request.destination;
+  const isAppShell = ["document", "script", "style", "manifest"].includes(dest) || /\.(html|js|css|webmanifest)$/.test(url.pathname);
+
+  event.respondWith(isAppShell ? networkFirst(event.request) : cacheFirst(event.request));
 });

@@ -26,6 +26,16 @@ Since this is an installed PWA with an offline service worker, browsers only not
 
 Installed users can then tap **Check for updates** at the bottom of the home screen to pull in the new version immediately, instead of waiting for the browser to notice on its own.
 
+As of v1.2.0, the service worker fetches the app's own code (HTML/CSS/JS) network-first and only falls back to the cache when offline, so a device that's online picks up new releases automatically on the next open — the "Check for updates" button and manual cache-clearing are now just a fallback for when you're offline or want it immediately.
+
+## Backups & long-term storage
+
+There's no server and no account — every form, submission, and business profile lives only in this browser's local storage on this one device. That has a few consequences worth knowing about if you use this for years:
+
+- **No cross-device sync.** Losing or replacing your phone loses this data unless you've backed it up. Use **Back up my data** at the bottom of the home screen periodically (especially before a phone upgrade) — it downloads one JSON file with everything, and **Restore a backup** loads it back in (on this device or a new one).
+- **Mobile Safari can evict storage after inactivity.** If you're using this as a bookmarked Safari tab rather than an installed home-screen app, iOS can clear local storage after about a week of not opening it. Installing it via Add to Home Screen (see above) avoids this.
+- **Storage has a limit** (commonly 5-10MB on mobile Safari). Each signed submission includes an embedded signature image, so thousands of old submissions over the years can add up. If storage fills up, the app will tell you rather than silently losing data — at that point, back up, then delete old submissions you no longer need (open a submission → Delete Submission).
+
 ## Enabling GitHub Pages
 
 To publish this app, enable GitHub Pages for this repository:

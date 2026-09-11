@@ -6,23 +6,36 @@ const ENTRIES_KEY = "formshare_entries_v2";
 const BUSINESSES_KEY = "formshare_businesses_v1";
 const SEED_KEY = "formshare_seeded_v2";
 const DISMISS_KEY = "formshare_install_dismissed_v1";
-const APP_VERSION = "1.1.0";
+const APP_VERSION = "1.2.0";
+
+// Storage on a device can fill up over years of use (mobile Safari typically
+// caps an origin around 5-10MB, and each signed submission carries an
+// embedded signature image). Surface that instead of silently losing data.
+function safeSetItem(key, value) {
+  try {
+    localStorage.setItem(key, value);
+    return true;
+  } catch {
+    showToast("Storage is full — back up your data, then delete some old submissions");
+    return false;
+  }
+}
 
 function loadTemplates() {
   try { return JSON.parse(localStorage.getItem(TEMPLATES_KEY)) || []; }
   catch { return []; }
 }
-function saveTemplates(list) { localStorage.setItem(TEMPLATES_KEY, JSON.stringify(list)); }
+function saveTemplates(list) { safeSetItem(TEMPLATES_KEY, JSON.stringify(list)); }
 function loadEntries() {
   try { return JSON.parse(localStorage.getItem(ENTRIES_KEY)) || []; }
   catch { return []; }
 }
-function saveEntries(list) { localStorage.setItem(ENTRIES_KEY, JSON.stringify(list)); }
+function saveEntries(list) { safeSetItem(ENTRIES_KEY, JSON.stringify(list)); }
 function loadBusinesses() {
   try { return JSON.parse(localStorage.getItem(BUSINESSES_KEY)) || []; }
   catch { return []; }
 }
-function saveBusinesses(list) { localStorage.setItem(BUSINESSES_KEY, JSON.stringify(list)); }
+function saveBusinesses(list) { safeSetItem(BUSINESSES_KEY, JSON.stringify(list)); }
 
 let templates = loadTemplates(); // form designs you've built ("My Forms")
 let entries = loadEntries();     // completed/signed submissions ("Submissions")
@@ -314,6 +327,7 @@ function renderHome() {
     ${entries.length ? entryCards : `<div class="empty-state" style="padding:20px 10px;">Completed, signed forms — yours or sent back to you — will show up here.</div>`}
 
     <div class="footer-note">FormShare v${APP_VERSION} · <button class="footer-link" onclick="checkForUpdates()">Check for updates</button></div>
+    <div class="footer-note"><button class="footer-link" onclick="exportBackup()">Back up my data</button> · <button class="footer-link" onclick="triggerImportBackup()">Restore a backup</button></div>
   `;
 }
 
@@ -1333,6 +1347,63 @@ async function checkForUpdates() {
   } catch {
     showToast("Couldn't check for updates — check your connection");
   }
+}
+
+/* ---------- Backup / Restore (everything lives only on this device — no server, no sync) ---------- */
+function exportBackup() {
+  const backup = {
+    formshareBackup: 1,
+    exportedAt: Date.now(),
+    appVersion: APP_VERSION,
+    templates,
+    entries,
+    businesses
+  };
+  const blob = new Blob([JSON.stringify(backup, null, 2)], { type: "application/json" });
+  const stamp = todayISO();
+  triggerDownload(blob, `formshare-backup-${stamp}.json`);
+  showToast("Backup downloaded — save it somewhere safe");
+}
+
+function triggerImportBackup() {
+  const input = document.createElement("input");
+  input.type = "file";
+  input.accept = "application/json,.json";
+  input.style.display = "none";
+  input.addEventListener("change", () => {
+    const file = input.files && input.files[0];
+    if (file) readImportedBackup(file);
+    input.remove();
+  });
+  document.body.appendChild(input);
+  input.click();
+}
+
+function readImportedBackup(file) {
+  const reader = new FileReader();
+  reader.onload = () => {
+    let data;
+    try { data = JSON.parse(reader.result); }
+    catch { showToast("That file isn't a valid FormShare backup"); return; }
+
+    if (!data || !Array.isArray(data.templates) || !Array.isArray(data.entries) || !Array.isArray(data.businesses)) {
+      showToast("That file isn't a valid FormShare backup");
+      return;
+    }
+    const summary = `${data.templates.length} form${data.templates.length === 1 ? "" : "s"}, ${data.entries.length} submission${data.entries.length === 1 ? "" : "s"}, ${data.businesses.length} business${data.businesses.length === 1 ? "" : "es"}`;
+    if (!confirm(`Restore this backup (${summary})? This replaces everything currently on this device.`)) return;
+
+    templates = data.templates;
+    entries = data.entries;
+    businesses = data.businesses;
+    saveTemplates(templates);
+    saveEntries(entries);
+    saveBusinesses(businesses);
+    navigate("home");
+    showToast("Backup restored");
+  };
+  reader.onerror = () => showToast("Couldn't read that file");
+  reader.readAsText(file);
 }
 
 /* ---------- Init ---------- */
