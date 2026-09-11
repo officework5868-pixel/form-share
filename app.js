@@ -208,15 +208,38 @@ function fromUrlSafeB64(s) {
   while (s.length % 4) s += "=";
   return s;
 }
-function encodeShareData(payload) {
-  return toUrlSafeB64(bytesToBase64(new TextEncoder().encode(JSON.stringify(payload))));
+// Gzip-compresses the payload when the browser supports it (Safari 16.4+,
+// all modern Chrome/Firefox) -- JSON with lots of repeated key names
+// compresses very well, meaningfully shortening the link. iOS's own
+// link-tap handling appears to mishandle very long URLs in Messages, so
+// shorter is directly a reliability fix, not just a nicety. Falls back to
+// plain uncompressed encoding on anything that lacks CompressionStream.
+async function encodeShareData(payload) {
+  const bytes = new TextEncoder().encode(JSON.stringify(payload));
+  if ("CompressionStream" in window) {
+    try {
+      const stream = new Blob([bytes]).stream().pipeThrough(new CompressionStream("gzip"));
+      const compressed = new Uint8Array(await new Response(stream).arrayBuffer());
+      return "1" + toUrlSafeB64(bytesToBase64(compressed));
+    } catch {
+      // fall through to uncompressed
+    }
+  }
+  return "0" + toUrlSafeB64(bytesToBase64(bytes));
 }
-function decodeShareData(str) {
-  return JSON.parse(new TextDecoder().decode(base64ToBytes(fromUrlSafeB64(str))));
+async function decodeShareData(str) {
+  const marker = str[0];
+  const bytes = base64ToBytes(fromUrlSafeB64(str.slice(1)));
+  if (marker === "1") {
+    const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream("gzip"));
+    const decompressed = new Uint8Array(await new Response(stream).arrayBuffer());
+    return JSON.parse(new TextDecoder().decode(decompressed));
+  }
+  return JSON.parse(new TextDecoder().decode(bytes));
 }
 // kind: "template" -> a blank form for someone else to fill out and sign
 // kind: "submission" -> a completed, signed form being sent back
-function buildShareLink(template, data, kind) {
+async function buildShareLink(template, data, kind) {
   const base = location.href.split("#")[0];
   const payload = kind === "template"
     ? { k: "template", name: template.name, accent: template.accent, fields: template.fields }
@@ -226,20 +249,20 @@ function buildShareLink(template, data, kind) {
   // triggers a real iOS bug where Messages' link detector truncates the
   // tappable URL right at the "=", even though the full text displays fine.
   // A plain path segment avoids that entirely.
-  return `${base}#/${path}/${encodeShareData(payload)}`;
+  return `${base}#/${path}/${await encodeShareData(payload)}`;
 }
 function clearSharedHash() {
   if (location.hash.startsWith("#/view") || location.hash.startsWith("#/fill")) {
     history.replaceState(null, "", location.pathname + location.search);
   }
 }
-function tryLoadSharedLink() {
+async function tryLoadSharedLink() {
   // Accepts both the current path-style link (#/fill/<data>) and the old
   // query-string-style one (#/fill?f=<data>) for links already sent out.
   const m = location.hash.match(/^#\/(view|fill)(?:\/|\?f=)(.+)$/);
   if (!m) return false;
   try {
-    const payload = decodeShareData(decodeURIComponent(m[2]));
+    const payload = await decodeShareData(decodeURIComponent(m[2]));
     if (!payload || !Array.isArray(payload.fields)) return false;
     const snapshot = { name: payload.name || "Form", accent: payload.accent || "#2856d6", fields: payload.fields };
     if (m[1] === "fill" || payload.k === "template") {
@@ -518,10 +541,10 @@ function fillWithBusiness() {
 }
 
 /* ---------- Sharing a blank template ---------- */
-function openTemplateShareModal(templateId) {
+async function openTemplateShareModal(templateId) {
   const tpl = templates.find(t => t.id === templateId);
   if (!tpl) return;
-  const link = buildShareLink(tpl, null, "template");
+  const link = await buildShareLink(tpl, null, "template");
   const text = `Please fill out this form: ${tpl.name}\n\n${link}\n\nSent from FormShare`;
   const encoded = encodeURIComponent(text);
   const subject = encodeURIComponent(`Please fill out: ${tpl.name}`);
@@ -546,7 +569,7 @@ async function copyTemplateLink(templateId) {
   const tpl = templates.find(t => t.id === templateId);
   if (!tpl) return;
   try {
-    await navigator.clipboard.writeText(buildShareLink(tpl, null, "template"));
+    await navigator.clipboard.writeText(await buildShareLink(tpl, null, "template"));
     showToast("Link copied to clipboard");
   } catch {
     showToast("Couldn't copy — select and copy manually");
@@ -1341,24 +1364,16 @@ function readImportedBackup(file) {
   reader.readAsText(file);
 }
 
-/* ---------- Init ---------- */
-const __debugHashAtLoad = location.hash;
-const __debugMatched = tryLoadSharedLink();
-if (!__debugMatched) state = { view: "home", formId: null, templateId: null, templateSnapshot: null };
-ensureSeedTemplates();
-initInstallBanner();
-render();
-
 // TEMPORARY diagnostic banner to pin down a link-sharing bug -- shows
 // exactly what the app saw in the URL at load time. Safe to remove once
 // the issue is confirmed and fixed. Tap it to dismiss.
-(function showDebugBanner() {
+function showDebugBanner(hashAtLoad, matched) {
   const el = document.createElement("div");
   el.style.cssText = "position:fixed;top:0;left:0;right:0;background:#111;color:#7CFC7C;font:11px/1.5 monospace;padding:10px 12px;z-index:99999;word-break:break-all;max-height:45vh;overflow:auto;white-space:pre-wrap;";
-  el.textContent = `DEBUG (tap to dismiss)\nhash length: ${__debugHashAtLoad.length}\nmatched a shared link: ${__debugMatched}\nstate.view: ${state.view}\nhash starts with: ${__debugHashAtLoad.slice(0, 60)}\nhash ends with: ${__debugHashAtLoad.slice(-30)}`;
+  el.textContent = `DEBUG (tap to dismiss)\nhash length: ${hashAtLoad.length}\nmatched a shared link: ${matched}\nstate.view: ${state.view}\nhash starts with: ${hashAtLoad.slice(0, 60)}\nhash ends with: ${hashAtLoad.slice(-30)}`;
   el.onclick = () => el.remove();
   document.body.appendChild(el);
-})();
+}
 
 // A phone often reuses an already-open tab (or resumes a suspended installed
 // app) instead of doing a fresh load when a shared link is tapped. Without
@@ -1366,8 +1381,22 @@ render();
 // startup, and silently kept showing whatever was already on screen instead
 // of the newly shared form. Re-check any time the URL actually changes, or
 // the page is restored from the back-forward cache.
-function routeFromCurrentHash() {
-  if (tryLoadSharedLink()) render();
+async function routeFromCurrentHash() {
+  const hashAtLoad = location.hash;
+  const matched = await tryLoadSharedLink();
+  if (matched) render();
+  showDebugBanner(hashAtLoad, matched);
 }
 window.addEventListener("hashchange", routeFromCurrentHash);
 window.addEventListener("pageshow", (e) => { if (e.persisted) routeFromCurrentHash(); });
+
+/* ---------- Init ---------- */
+(async function initApp() {
+  const hashAtLoad = location.hash;
+  const matched = await tryLoadSharedLink();
+  if (!matched) state = { view: "home", formId: null, templateId: null, templateSnapshot: null };
+  ensureSeedTemplates();
+  initInstallBanner();
+  render();
+  showDebugBanner(hashAtLoad, matched);
+})();
